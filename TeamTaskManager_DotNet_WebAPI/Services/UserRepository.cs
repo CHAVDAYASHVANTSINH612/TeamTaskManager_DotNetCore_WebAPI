@@ -29,9 +29,10 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
             {
                 using (IDbConnection connection = new SqlConnection(_connectionString))
                 {
-                    string sql = "SELECT u.id, u.name , u.user_type_id AS UserTypeId , ut.user_type AS UserType " +
-                                         "FROM Users u JOIN UserType ut ON u.user_type_id = ut.user_type_id ";
-                    List<User> userList = (await connection.QueryAsync<User>(sql)).ToList();
+                   /* string sql = "SELECT u.id, u.name , u.user_type_id AS UserTypeId , ut.user_type AS UserType " +
+                                         "FROM Users u JOIN UserType ut ON u.user_type_id = ut.user_type_id ";  */
+
+                    List<User> userList = (await connection.QueryAsync<User>("GetAllUsers", commandType: CommandType.StoredProcedure)).ToList();
                     return userList;
                 }
             }
@@ -49,10 +50,13 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
                 {
                     using (IDbConnection connection = new SqlConnection(_connectionString))
                     {
-                        string sqlJoin = "SELECT u.id,u.name,u.user_type_id AS UserTypeId,ut.user_type As UserType " +
-                                         "FROM Users u JOIN UserType ut ON u.user_type_id = ut.user_type_id WHERE u.id=@user_id";
+                        /* string sqlJoin = "SELECT u.id,u.name,u.user_type_id AS UserTypeId,ut.user_type As UserType " +
+                                          "FROM Users u JOIN UserType ut ON u.user_type_id = ut.user_type_id WHERE u.id=@user_id"; */
 
-                        User user = await connection.QueryFirstOrDefaultAsync<User>(sqlJoin, new { user_id = userId });
+                        var parameters = new DynamicParameters();
+                        parameters.Add("@UserId", userId);
+
+                        var user = await connection.QueryFirstOrDefaultAsync<User>("GetUserById", parameters, commandType: CommandType.StoredProcedure);
 
                         return user;
                     }
@@ -75,8 +79,11 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
             {
                 using (IDbConnection connection = new SqlConnection(_connectionString))
                 {
-                    string sqlAdminExist = "select Count(*) From Users WHERE user_type_id=1";
-                    int admins = await connection.ExecuteScalarAsync<int>(sqlAdminExist);
+                    /*string sqlAdminExist = "select Count(*) From Users WHERE user_type_id=1"; */
+
+
+                    int admins = await connection.ExecuteScalarAsync<int>("CountAdminUsers", commandType: CommandType.StoredProcedure);
+                    
 
                     if (admins > 0)
                     {
@@ -110,10 +117,17 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
 
                 using (IDbConnection connection = new SqlConnection(_connectionString))
                 {
-                    string insertSql = " INSERT INTO Users (name, user_type_id) " +
-                                        "OUTPUT INSERTED.id  VALUES (@userName, @userTypeId);";
+                   /* string insertSql = " INSERT INTO Users (name, user_type_id) " +
+                                        "OUTPUT INSERTED.id  VALUES (@userName, @userTypeId);";   */
 
-                    userId = await connection.ExecuteScalarAsync<int>(insertSql, new { userName = user.Name, userTypeId = user.UserTypeId });
+                    var parameters = new DynamicParameters();
+                    parameters.Add("@Name", user.Name);
+                    parameters.Add("@UserTypeId", user.UserTypeId);
+                    parameters.Add("@UserId", dbType: DbType.Int32, direction: ParameterDirection.Output);
+
+                    await connection.ExecuteAsync("InsertUser", parameters, commandType: CommandType.StoredProcedure);
+
+                     userId = parameters.Get<int>("@UserId");
 
                     if (userId > 0)
                     {
@@ -136,8 +150,11 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
             {
                 using (IDbConnection connection = new SqlConnection(_connectionString))
                 {
-                    string selectSql = "SELECT COUNT(*) FROM Users WHERE id = @UserId";
-                    count = await connection.ExecuteScalarAsync<int>(selectSql, new { UserId = userId });
+                   /* string selectSql = "SELECT COUNT(*) FROM Users WHERE id = @UserId";   */
+
+                    var parameters = new DynamicParameters();
+                    parameters.Add("@UserId", userId);
+                    count = await connection.ExecuteScalarAsync<int>("CheckUserExistenceById", parameters, commandType: CommandType.StoredProcedure);
 
                     return count > 0;
                 }
@@ -158,13 +175,21 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
                     int taskDeleted = 0, userDeleted = 0;
                     using (IDbConnection connection = new SqlConnection(_connectionString))
                     {
-                        string DeleteTaskSql = "DELETE  FROM Tasks WHERE task_user_id = @UserId";
-                        taskDeleted = await connection.ExecuteAsync(DeleteTaskSql, new { UserId = userId });
+                        /* string DeleteTaskSql = "DELETE  FROM Tasks WHERE task_user_id = @UserId";
+                         string deleteUserSql = "DELETE  FROM Users WHERE id = @UserId"; */
 
-                        string selectSql = "DELETE  FROM Users WHERE id = @UserId";
-                        userDeleted = await connection.ExecuteAsync(selectSql, new { UserId = userId });
 
-                        return userDeleted > 0;
+                        var parameters = new DynamicParameters();
+                        parameters.Add("@UserId", userId);
+                        parameters.Add("@TasksRowsAffected", dbType: DbType.Int32, direction: ParameterDirection.Output);
+                        parameters.Add("@UserRowsAffected", dbType: DbType.Int32, direction: ParameterDirection.Output);
+
+                        await connection.ExecuteAsync("DeleteUserAndTasks", parameters, commandType: CommandType.StoredProcedure);
+
+                        int tasksRowsAffected = parameters.Get<int>("@TasksRowsAffected");
+                        int userRowsAffected = parameters.Get<int>("@UserRowsAffected");
+                        
+                        return tasksRowsAffected > 0 || userRowsAffected > 0;
                     }
 
                 }

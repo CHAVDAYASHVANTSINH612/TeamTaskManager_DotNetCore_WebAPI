@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using TeamTaskManager_DotNet_WebAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,12 +22,10 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-string connectionstring = builder.Configuration["ConnectionStrings:DefaultConnection"];
+string connectionstring = builder.Configuration.GetConnectionString("DefaultConnection");
 
-
-builder.Services.AddTransient<IUserRepository,UserRepository>(s => new UserRepository(connectionstring));
-builder.Services.AddTransient<ITaskRepository,TaskRepository>(s => new TaskRepository(connectionstring));
-
+builder.Services.AddTransient<IUserRepository, UserRepository>(s => new UserRepository(connectionstring));
+builder.Services.AddTransient<ITaskRepository,TaskRepository>(s => new TaskRepository(connectionstring)); 
 
 builder.Services.AddTransient<IUserService, UserService>();
 builder.Services.AddTransient<ITaskService, TaskService>();

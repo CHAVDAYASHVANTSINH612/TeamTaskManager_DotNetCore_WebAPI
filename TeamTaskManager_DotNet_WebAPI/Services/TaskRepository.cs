@@ -20,9 +20,9 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
     public class TaskRepository : ITaskRepository
     {
         private readonly string _connectionString;
-        public TaskRepository(string ConnectionString)
+        public TaskRepository( String ConnectionString)
         {
-            this._connectionString = ConnectionString;
+            this._connectionString =ConnectionString;
         }
         public async Task<List<Tasks>> getAllTasksByUserId(int userId)
         {
@@ -30,10 +30,15 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
             {
                 using (IDbConnection connection = new SqlConnection(_connectionString))
                 {
-                    string sqlJoiNTask = "SELECT t.id,t.title,t.content, t.modified, t.task_status_id AS TaskStatusId, ts.task_status AS TaskStatus, t.task_user_id AS UserId " +
-                                        "FROM Tasks t JOIN TaskStatus ts ON t.task_status_id = ts.task_status_id WHERE task_user_id=@task_user_id;";
+                    /*string sqlJoiNTask = "SELECT t.id,t.title,t.content, t.modified, t.task_status_id AS TaskStatusId, ts.task_status AS TaskStatus, t.task_user_id AS UserId " +
+                                        "FROM Tasks t JOIN TaskStatus ts ON t.task_status_id = ts.task_status_id WHERE task_user_id=@task_user_id;";   */
 
-                    List<Tasks> tasksList = (await connection.QueryAsync<Tasks>(sqlJoiNTask, new { task_user_id = userId })).ToList();
+                    var parameters = new { UserId = userId };
+                    List<Tasks> tasksList = (await connection.QueryAsync<Tasks>(
+                                  "GetTasksByUserId",
+                                  parameters,
+                                  commandType: CommandType.StoredProcedure
+                              )).ToList();
                     return tasksList;
                 }
             }
@@ -54,14 +59,25 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
                 {
                     using (IDbConnection connection = new SqlConnection(_connectionString))
                     {
-                        string sqlInsertTask = "INSERT INTO Tasks OUTPUT INSERTED.id  VALUES " +
-                              "(@title,@content,SYSUTCDATETIME(),@TaskStatusId,@UserId);";
                         if (task.TaskStatusId < 1 || task.TaskStatusId > 3)
                         {
                             task.TaskStatusId = 1;
                         }
 
-                        generatedTaskId = await connection.ExecuteScalarAsync<int>(sqlInsertTask, task);
+                        var parameters = new DynamicParameters();
+                        parameters.Add("@Title", task.Title);
+                        parameters.Add("@Content", task.Content);
+                        parameters.Add("@TaskStatusId", task.TaskStatusId);
+                        parameters.Add("@UserId", task.UserId);
+                        parameters.Add("@GeneratedTaskId", dbType: DbType.Int32, direction: ParameterDirection.Output);
+
+                        var result = await connection.QuerySingleAsync<int>(
+                            "InsertTask",
+                            parameters,
+                            commandType: CommandType.StoredProcedure
+                        );
+
+                        generatedTaskId = parameters.Get<int>("@GeneratedTaskId");
                     }
                 }
             }
@@ -80,10 +96,14 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
             {
                 using (IDbConnection connection = new SqlConnection(_connectionString))
                 {
-                    string sqlTaskExists = "SELECT COUNT(*) FROM Tasks WHERE id=@task_id";
+                    var parameters = new DynamicParameters();
+                    parameters.Add("@TaskId", taskId);
+                    parameters.Add("@Exists", dbType: DbType.Boolean, direction: ParameterDirection.Output);
 
-                    int count = await connection.ExecuteScalarAsync<int>(sqlTaskExists, new { task_id = taskId });
-                    return count > 0;
+                    await connection.ExecuteAsync("CheckTaskExists", parameters, commandType: CommandType.StoredProcedure);
+
+                    bool exists = parameters.Get<bool>("@Exists");
+                    return exists;
                 }
             }
             catch (Exception ex) { Console.WriteLine(ex.Message); }
@@ -97,13 +117,18 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
             {
                 using (IDbConnection connection = new SqlConnection(_connectionString))
                 {
-                    string sqlUpdateTaskStatus1 = "UPDATE Tasks SET task_status_id= @updated_status WHERE id=@task_id";
-                    int rowsEffected = await connection.ExecuteAsync(sqlUpdateTaskStatus1, new { updated_status = updatedStatus, task_id = taskId });
+                    // string sqlUpdateTaskStatus1 = "UPDATE Tasks SET task_status_id= @updated_status WHERE id=@task_id";
 
-                    if (rowsEffected > 0)
-                    {
-                        return 1;
-                    }
+                    var parameters = new DynamicParameters();
+                    parameters.Add("@TaskId", taskId);
+                    parameters.Add("@UpdatedStatus", updatedStatus);
+                    parameters.Add("@RowsAffected", dbType: DbType.Int32, direction: ParameterDirection.Output);
+
+                    await connection.ExecuteAsync("UpdateTaskStatus", parameters, commandType: CommandType.StoredProcedure);
+
+                    int rowsEffected = parameters.Get<int>("@RowsAffected");
+
+                    return rowsEffected > 0 ? 1 : 0;
                 }
 
             }
@@ -121,8 +146,13 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
                 {
                     using (IDbConnection connection = new SqlConnection(_connectionString))
                     {
-                        string sqlTaskStatus = "SELECT task_status_id FROM Tasks WHERE id= @task_id; ";
-                        int taskStatusId = await connection.ExecuteScalarAsync<int>(sqlTaskStatus, new { task_id = taskId });
+                        var parameters = new DynamicParameters();
+                        parameters.Add("@TaskId", taskId);
+                        parameters.Add("@TaskStatusId", dbType: DbType.Int32, direction: ParameterDirection.Output);
+
+                        await connection.ExecuteAsync("GetTaskStatusId", parameters, commandType: CommandType.StoredProcedure);
+
+                        int taskStatusId = parameters.Get<int>("@TaskStatusId");
 
                         return taskStatusId;
                     }
@@ -145,17 +175,15 @@ namespace TeamTaskManager_DotNet_WebAPI.Services
                 {
                     using (IDbConnection connection = new SqlConnection(_connectionString))
                     {
-                        string sqlDeleteTask = "DELETE FROM Tasks WHERE id= @task_id; ";
-                        int rowsEffected = await connection.ExecuteAsync(sqlDeleteTask, new { task_id = taskId });
+                        var parameters = new DynamicParameters();
+                        parameters.Add("@TaskId", taskId);
+                        parameters.Add("@RowsAffected", dbType: DbType.Int32, direction: ParameterDirection.Output);
 
-                        if (rowsEffected > 0)
-                        {
-                            return true;
-                        }
-                        else
-                        {
-                            return false;
-                        }
+                        await connection.ExecuteAsync("DeleteTask", parameters, commandType: CommandType.StoredProcedure);
+
+                        int rowsEffected = parameters.Get<int>("@RowsAffected");
+
+                        return rowsEffected > 0;
                     }
                 }
                 else
